@@ -1,0 +1,1208 @@
+{
+  "name": "Sales Agent 1 - Outbound (research, score, send)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sales Agent 1: Outbound\n\n1. Set credentials: Google Sheets, Gmail, and Header Auth for Gemini (header name `x-goog-api-key`).\n2. Paste your Sheet ID into every Google Sheets node.\n3. Edit the **Config** node (offer, ICP, booking link, limits).\n4. Keep `autoSend` = false until you have reviewed ~20 drafts.\n5. Test with *Execute workflow* on 3-5 leads before activating.",
+        "height": 260,
+        "width": 420
+      },
+      "id": "d794599c-5658-4b9c-88f2-46bb13316c35",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "a46ab93e-78ae-404c-86e8-60d261971614",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg0",
+              "name": "model",
+              "value": "gemini-flash-latest",
+              "type": "string"
+            },
+            {
+              "id": "cfg1",
+              "name": "senderName",
+              "value": "Your Name",
+              "type": "string"
+            },
+            {
+              "id": "cfg2",
+              "name": "senderCompany",
+              "value": "Your Company",
+              "type": "string"
+            },
+            {
+              "id": "cfg3",
+              "name": "offer",
+              "value": "Describe what you sell in 2-3 sentences: the product, who it helps and the main result it delivers.",
+              "type": "string"
+            },
+            {
+              "id": "cfg4",
+              "name": "icp",
+              "value": "Describe your ideal customer: industry, company size, role of the buyer, and the signals that mean they need you.",
+              "type": "string"
+            },
+            {
+              "id": "cfg5",
+              "name": "bookingLink",
+              "value": "https://calendly.com/your-link",
+              "type": "string"
+            },
+            {
+              "id": "cfg6",
+              "name": "ownerEmail",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "cfg7",
+              "name": "dailyLimit",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "cfg8",
+              "name": "minScore",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "cfg9",
+              "name": "autoSend",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "cfg10",
+              "name": "followUpDays",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "cfg11",
+              "name": "maxFollowUps",
+              "value": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5ec67c6f-bc66-4111-b4fd-231b3c56e72f",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "3b83b82d-abc5-41f5-acbd-16e746919dbc",
+      "name": "Get New Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        512,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "maxItems": "={{ $('Config').first().json.dailyLimit }}"
+      },
+      "id": "565d5e8f-6d20-4d01-a7b7-fe9a9d1e61a2",
+      "name": "Daily Cap",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "848748b0-295c-48ad-a288-404a125a571c",
+      "name": "Loop Over Leads",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        944,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ String($json.website).startsWith('http') ? $json.website : 'https://' + $json.website }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "3641d8ab-6661-4ddf-85d2-95ef1bbf7bdf",
+      "name": "Fetch Website",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1168,
+        448
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $('Loop Over Leads').item.json;\nconst cfg = $('Config').first().json;\nlet text = String($json.data || '');\ntext = text\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, ' ')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, ' ')\n  .replace(/<[^>]+>/g, ' ')\n  .replace(/&nbsp;|&amp;/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim()\n  .slice(0, 5000);\n\nconst system = `You are a sales development assistant for ${cfg.senderCompany}.\nWhat we sell: ${cfg.offer}\nIdeal customer profile: ${cfg.icp}\n\nYour job: read the prospect's website text, score how well they fit, and draft a short cold email.\n\nRules:\n- Use ONLY facts found in the website text. Never invent facts, numbers, clients or news.\n- Never state numbers, volumes or staff effort (such as \"thousands of requests\" or \"hours each day\") unless the website text says exactly that.\n- Do not claim how the business operates internally. Say what their website shows, then phrase the likely pain point as a possibility, for example \"I imagine...\" or \"Teams that handle X often find...\".\n- Keep the tone modest and factual: no exaggeration and no \"you currently struggle with\".\n- If the website text is empty or too thin to personalize, score 4 or lower.\n- Score 1-10 for fit with the ideal customer profile.\n- Email body: max 90 words, plain text, no buzzwords, no flattery, no emojis.\n- Structure: one specific observation about their business, one sentence linking it to a problem we likely solve for them, one low-friction question as the call to action.\n- Do not include a greeting, signature, links or unsubscribe text (these are added automatically).\n- Subject: max 6 words, lowercase, no clickbait.\nReturn ONLY valid JSON with no markdown: {\"score\": number, \"reason\": string, \"pain_points\": [string], \"hook\": string, \"subject\": string, \"body\": string}`;\n\nconst user = `Prospect: ${lead.contact_name || 'unknown name'} (${lead.role || 'unknown role'}) at ${lead.company}\nWebsite: ${lead.website}\n\nWebsite text:\n${text || '[website could not be fetched]'}`;\n\nreturn { json: { lead, requestBody: {\n  systemInstruction: { parts: [{ text: system }] },\n  contents: [{ role: 'user', parts: [{ text: user }] }],\n  generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 3000, temperature: 0.7 }\n} } };\n"
+      },
+      "id": "7641e1d4-a0cc-4e7c-b70c-276d75b9c943",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Config').first().json.model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "813466c2-63be-44a2-85e7-99f8c4c5d441",
+      "name": "AI: Research and Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        448
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $('Build Prompt').item.json.lead;\nconst cfg = $('Config').first().json;\nlet out = {};\ntry {\n  const raw = $json.candidates[0].content.parts.map(p => p.text || '').join('').replace(/```json|```/g, '').trim();\n  out = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));\n} catch (e) {\n  out = { score: 0, reason: 'parse_error', hook: '', subject: '', body: '' };\n}\nif (!out.body || !out.subject) { out.score = 0; if (!out.reason) out.reason = 'empty_draft'; }\n\nconst first = String(lead.contact_name || '').trim().split(' ')[0];\nconst greeting = first ? `Hi ${first},` : 'Hi,';\nconst cta = cfg.bookingLink ? `\\n\\nIf easier, grab a time here: ${cfg.bookingLink}` : '';\nconst draft = `${greeting}\\n\\n${out.body}${cta}\\n\\nBest,\\n${cfg.senderName}\\n${cfg.senderCompany}\\n\\nP.S. If this isn't relevant, just reply \"unsubscribe\" and I won't email again.`;\n\nreturn { json: {\n  company: lead.company, website: lead.website, contact_name: lead.contact_name || '',\n  email: String(lead.email || '').trim().toLowerCase(), role: lead.role || '',\n  score: Number(out.score) || 0, reason: out.reason || '', hook: out.hook || '',\n  subject: out.subject || '', draft\n} };\n"
+      },
+      "id": "003190e0-139a-48bc-8736-cbbb40f7a86b",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1824,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.score }}",
+              "rightValue": "={{ $('Config').first().json.minScore }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cd1f9f99-820a-4961-a8cc-55064cc48339",
+      "name": "Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2048,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Config').first().json.autoSend }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "05318524-1582-4227-9eba-24ceb7f29358",
+      "name": "Auto-send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2272,
+        352
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Parse Result').item.json.email }}",
+        "subject": "={{ $('Parse Result').item.json.subject }}",
+        "emailType": "text",
+        "message": "={{ $('Parse Result').item.json.draft }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "de5da50a-3e35-4de5-945e-3e8253cbc71a",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        272
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Parse Result').item.json.email }}",
+            "company": "={{ $('Parse Result').item.json.company }}",
+            "website": "={{ $('Parse Result').item.json.website }}",
+            "contact_name": "={{ $('Parse Result').item.json.contact_name }}",
+            "role": "={{ $('Parse Result').item.json.role }}",
+            "status": "contacted",
+            "score": "={{ $('Parse Result').item.json.score }}",
+            "hook": "={{ $('Parse Result').item.json.hook }}",
+            "subject": "={{ $('Parse Result').item.json.subject }}",
+            "thread_id": "={{ $('Send Email').item.json.threadId }}",
+            "message_id": "={{ $('Send Email').item.json.id }}",
+            "last_contacted": "={{ $now.toISO() }}",
+            "follow_ups": 0
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hook",
+              "displayName": "hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft",
+              "displayName": "draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_contacted",
+              "displayName": "last_contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_ups",
+              "displayName": "follow_ups",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_reply",
+              "displayName": "last_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "3c41bcc1-98eb-407e-ab1c-0dc71eb63ee9",
+      "name": "Log Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2704,
+        272
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{ Math.floor(Math.random() * 90) + 30 }}"
+      },
+      "id": "dd8092dc-7b9d-4635-9d6e-e57a761e84f0",
+      "name": "Wait Between Sends",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2928,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $('Parse Result').item.json.subject }}",
+        "message": "={{ $('Parse Result').item.json.draft }}",
+        "options": {
+          "sendTo": "={{ $('Parse Result').item.json.email }}"
+        }
+      },
+      "id": "bdae17c5-47cc-4a0e-bead-32a332373052",
+      "name": "Save Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2480,
+        448
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Parse Result').item.json.email }}",
+            "company": "={{ $('Parse Result').item.json.company }}",
+            "website": "={{ $('Parse Result').item.json.website }}",
+            "contact_name": "={{ $('Parse Result').item.json.contact_name }}",
+            "role": "={{ $('Parse Result').item.json.role }}",
+            "status": "drafted",
+            "score": "={{ $('Parse Result').item.json.score }}",
+            "hook": "={{ $('Parse Result').item.json.hook }}",
+            "subject": "={{ $('Parse Result').item.json.subject }}",
+            "draft": "={{ $('Parse Result').item.json.draft }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hook",
+              "displayName": "hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft",
+              "displayName": "draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_contacted",
+              "displayName": "last_contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_ups",
+              "displayName": "follow_ups",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_reply",
+              "displayName": "last_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "9c1220b7-a352-44d0-867a-f9e711fa3b12",
+      "name": "Log Drafted",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2704,
+        448
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Parse Result').item.json.email }}",
+            "company": "={{ $('Parse Result').item.json.company }}",
+            "status": "={{ $('Parse Result').item.json.reason === 'parse_error' ? 'new' : 'disqualified' }}",
+            "score": "={{ $('Parse Result').item.json.score }}",
+            "notes": "={{ $('Parse Result').item.json.reason }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hook",
+              "displayName": "hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft",
+              "displayName": "draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_contacted",
+              "displayName": "last_contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_ups",
+              "displayName": "follow_ups",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_reply",
+              "displayName": "last_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "9a8e6485-6078-49df-a50e-73ed55dcebb8",
+      "name": "Log Disqualified",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2272,
+        624
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get New Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get New Leads": {
+      "main": [
+        [
+          {
+            "node": "Daily Cap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Cap": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Leads": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Fetch Website",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Website": {
+      "main": [
+        [
+          {
+            "node": "Build Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI: Research and Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Research and Draft": {
+      "main": [
+        [
+          {
+            "node": "Parse Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Result": {
+      "main": [
+        [
+          {
+            "node": "Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Auto-send?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Disqualified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-send?": {
+      "main": [
+        [
+          {
+            "node": "Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email": {
+      "main": [
+        [
+          {
+            "node": "Log Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Sent": {
+      "main": [
+        [
+          {
+            "node": "Wait Between Sends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Between Sends": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Draft": {
+      "main": [
+        [
+          {
+            "node": "Log Drafted",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Drafted": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Disqualified": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Asia/Kathmandu"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

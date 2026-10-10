@@ -1,0 +1,713 @@
+{
+  "name": "Sales Agent 3 - Follow-ups",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sales Agent 3: Follow-ups\n\nRuns weekdays at 10:00. Finds leads with status `contacted`, no reply after `followUpDays` days and fewer than `maxFollowUps` follow-ups, then writes and sends a short follow-up in the same thread.\n\nWith `autoSend` = false it saves a Gmail draft instead.",
+        "height": 240,
+        "width": 440
+      },
+      "id": "57b83002-b7d3-44e2-b1e9-ca204e474dfa",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "9896bf09-1cfc-4faa-891c-77895876f2bd",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg0",
+              "name": "model",
+              "value": "gemini-flash-latest",
+              "type": "string"
+            },
+            {
+              "id": "cfg1",
+              "name": "senderName",
+              "value": "Your Name",
+              "type": "string"
+            },
+            {
+              "id": "cfg2",
+              "name": "senderCompany",
+              "value": "Your Company",
+              "type": "string"
+            },
+            {
+              "id": "cfg3",
+              "name": "offer",
+              "value": "Describe what you sell in 2-3 sentences: the product, who it helps and the main result it delivers.",
+              "type": "string"
+            },
+            {
+              "id": "cfg4",
+              "name": "icp",
+              "value": "Describe your ideal customer: industry, company size, role of the buyer, and the signals that mean they need you.",
+              "type": "string"
+            },
+            {
+              "id": "cfg5",
+              "name": "bookingLink",
+              "value": "https://calendly.com/your-link",
+              "type": "string"
+            },
+            {
+              "id": "cfg6",
+              "name": "ownerEmail",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "cfg7",
+              "name": "dailyLimit",
+              "value": 20,
+              "type": "number"
+            },
+            {
+              "id": "cfg8",
+              "name": "minScore",
+              "value": 7,
+              "type": "number"
+            },
+            {
+              "id": "cfg9",
+              "name": "autoSend",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "cfg10",
+              "name": "followUpDays",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "cfg11",
+              "name": "maxFollowUps",
+              "value": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "cd90520c-cee9-413d-aa12-1f937afeaf76",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Leads",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "dc7e0733-38d4-459b-9497-1762570074cf",
+      "name": "Get Contacted Leads",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        512,
+        320
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst cfg = $('Config').first().json;\nconst now = Date.now();\nreturn $input.all().filter(i => {\n  const r = i.json;\n  if (!r.email || !r.message_id || !r.last_contacted) return false;\n  const days = (now - new Date(r.last_contacted).getTime()) / 86400000;\n  return days >= cfg.followUpDays && Number(r.follow_ups || 0) < cfg.maxFollowUps;\n});\n"
+      },
+      "id": "f396403e-062a-4d28-be69-ed1942551a28",
+      "name": "Due for Follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "maxItems": "={{ $('Config').first().json.dailyLimit }}"
+      },
+      "id": "b9a6e58e-746c-4f39-8eb4-c7ae7aba3959",
+      "name": "Daily Cap",
+      "type": "n8n-nodes-base.limit",
+      "typeVersion": 1,
+      "position": [
+        944,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $json;\nconst cfg = $('Config').first().json;\nconst n = Number(lead.follow_ups || 0) + 1;\nconst isLast = n >= cfg.maxFollowUps;\nconst system = `You write short follow-up emails for ${cfg.senderName} of ${cfg.senderCompany}.\nWhat we sell: ${cfg.offer}\n\nWrite follow-up number ${n} to a prospect who has not replied.\nRules:\n- Max 50 words, plain text, no greeting, no signature, no links.\n- Do not guilt-trip or say \"just checking in\" or \"bumping this\".\n- Offer one new angle or one useful, specific thought connected to their business hook. Do not repeat the first email.\n${isLast ? '- This is the final follow-up: say it is the last note and leave the door open.' : ''}\nReturn ONLY valid JSON with no markdown: {\"body\": string}`;\n\nconst user = `Prospect: ${lead.contact_name || ''} at ${lead.company}\nHook from first email: ${lead.hook || 'n/a'}\nFirst email subject: ${lead.subject}`;\n\nreturn { json: { lead, requestBody: {\n  systemInstruction: { parts: [{ text: system }] },\n  contents: [{ role: 'user', parts: [{ text: user }] }],\n  generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 3000, temperature: 0.7 }\n} } };\n"
+      },
+      "id": "fd77fa10-ac6f-4d1f-955a-e8f0dea67d2d",
+      "name": "Build Follow-up Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Config').first().json.model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "bd36f8f3-ff4d-4806-a13a-a70b780ef87b",
+      "name": "AI: Write Follow-up",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1392,
+        320
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $('Build Follow-up Prompt').item.json.lead;\nconst cfg = $('Config').first().json;\nlet body = '';\ntry {\n  const raw = $json.candidates[0].content.parts.map(p => p.text || '').join('').replace(/```json|```/g, '').trim();\n  body = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)).body || '';\n} catch (e) { body = ''; }\n// If the model failed, skip this lead for now (empty text is filtered out below).\nconst first = String(lead.contact_name || '').trim().split(' ')[0];\nconst text = body ? `${first ? 'Hi ' + first + ',' : 'Hi,'}\\n\\n${body}\\n\\nBest,\\n${cfg.senderName}\\n${cfg.senderCompany}\\n\\nP.S. Reply \"unsubscribe\" and I won't email again.` : '';\nreturn { json: {\n  email: lead.email, company: lead.company, subject: 'Re: ' + (lead.subject || ''),\n  messageId: lead.message_id, threadId: lead.thread_id,\n  followUps: Number(lead.follow_ups || 0) + 1, text\n} };\n"
+      },
+      "id": "328a78da-683b-48e1-85f6-290aed1f1d8c",
+      "name": "Parse Follow-up",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1600,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.text }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b7142f8b-60b2-4aba-bb7e-24ec83230b70",
+      "name": "Has Text?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1824,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $('Config').first().json.autoSend }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bccf2805-505b-4fbe-a798-9af1c77cc457",
+      "name": "Auto-send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2048,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Parse Follow-up').item.json.messageId }}",
+        "emailType": "text",
+        "message": "={{ $('Parse Follow-up').item.json.text }}",
+        "options": {}
+      },
+      "id": "fc6b8079-c7cf-45bc-b19b-7a54ea1d9b2c",
+      "name": "Send Follow-up",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2272,
+        208
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $('Parse Follow-up').item.json.subject }}",
+        "message": "={{ $('Parse Follow-up').item.json.text }}",
+        "options": {
+          "threadId": "={{ $('Parse Follow-up').item.json.threadId }}",
+          "sendTo": "={{ $('Parse Follow-up').item.json.email }}"
+        }
+      },
+      "id": "49bf200d-1f4d-41a6-836c-738b4accf616",
+      "name": "Save Follow-up Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2272,
+        384
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Parse Follow-up').item.json.email }}",
+            "follow_ups": "={{ $('Parse Follow-up').item.json.followUps }}",
+            "last_contacted": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hook",
+              "displayName": "hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft",
+              "displayName": "draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_contacted",
+              "displayName": "last_contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_ups",
+              "displayName": "follow_ups",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_reply",
+              "displayName": "last_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "450337f6-dfca-484e-8ef0-bb06785cb38f",
+      "name": "Update Follow-up Count",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2512,
+        304
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Get Contacted Leads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Contacted Leads": {
+      "main": [
+        [
+          {
+            "node": "Due for Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Due for Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Daily Cap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily Cap": {
+      "main": [
+        [
+          {
+            "node": "Build Follow-up Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Follow-up Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI: Write Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Write Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Parse Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Has Text?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Text?": {
+      "main": [
+        [
+          {
+            "node": "Auto-send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto-send?": {
+      "main": [
+        [
+          {
+            "node": "Send Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Save Follow-up Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Update Follow-up Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Follow-up Draft": {
+      "main": [
+        [
+          {
+            "node": "Update Follow-up Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Asia/Kathmandu"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

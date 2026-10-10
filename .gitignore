@@ -1,0 +1,10 @@
+# ignore everything by default
+*
+# only these files are allowed
+!.gitignore
+!README.md
+!leads-template.csv
+!1-outbound.json
+!2-reply-handler.json
+!3-follow-ups.json
+!4-error-alert.json

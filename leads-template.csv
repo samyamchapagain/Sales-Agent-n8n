@@ -1,0 +1,3 @@
+company,website,contact_name,email,role,status,score,hook,subject,draft,thread_id,message_id,last_contacted,follow_ups,last_reply,notes
+Acme Dental,acmedental.example.com,Jane Doe,jane@acmedental.example.com,Practice Manager,new,,,,,,,,0,,
+Northwind Logistics,northwind.example.com,Sam Lee,sam@northwind.example.com,Operations Lead,new,,,,,,,,0,,

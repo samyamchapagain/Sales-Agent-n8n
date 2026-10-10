@@ -1,0 +1,768 @@
+{
+  "name": "Sales Agent 2 - Reply handler",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Sales Agent 2: Replies\n\nPolls Gmail every minute for unread mail, matches the sender against the Leads sheet, classifies the reply with the AI model and routes it.\n\n- **interested**: replies with your booking link (only if `autoSend` = true, otherwise you get a notification with a suggested reply)\n- **question / other**: emails you the lead's message + suggested reply\n- **not_now**: marks `follow_up_later`\n- **unsubscribe**: marks `do_not_contact` (never emailed again)\n\nKeep emails in the sheet lowercase so the lookup matches.",
+        "height": 300,
+        "width": 460
+      },
+      "id": "53ca887e-5ae7-4447-8cae-c36eee00cc48",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "labelIds": [
+            "INBOX"
+          ],
+          "readStatus": "unread"
+        }
+      },
+      "id": "113e9245-7c78-42ce-9233-910b5310166d",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        64,
+        368
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cfg0",
+              "name": "model",
+              "value": "gemini-flash-latest",
+              "type": "string"
+            },
+            {
+              "id": "cfg1",
+              "name": "senderName",
+              "value": "Your Name",
+              "type": "string"
+            },
+            {
+              "id": "cfg2",
+              "name": "senderCompany",
+              "value": "Your Company",
+              "type": "string"
+            },
+            {
+              "id": "cfg3",
+              "name": "offer",
+              "value": "Describe what you sell in 2-3 sentences: the product, who it helps and the main result it delivers.",
+              "type": "string"
+            },
+            {
+              "id": "cfg4",
+              "name": "icp",
+              "value": "Describe your ideal customer: industry, company size, role of the buyer, and the signals that mean they need you.",
+              "type": "string"
+            },
+            {
+              "id": "cfg5",
+              "name": "bookingLink",
+              "value": "https://calendly.com/your-link",
+              "type": "string"
+            },
+            {
+              "id": "cfg6",
+              "name": "ownerEmail",
+              "value": "you@example.com",
+              "type": "string"
+            },
+            {
+              "id": "cfg7",
+              "name": "dailyLimit",
+              "value": 5,
+              "type": "number"
+            },
+            {
+              "id": "cfg8",
+              "name": "minScore",
+              "value": 6,
+              "type": "number"
+            },
+            {
+              "id": "cfg9",
+              "name": "autoSend",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "cfg10",
+              "name": "followUpDays",
+              "value": 3,
+              "type": "number"
+            },
+            {
+              "id": "cfg11",
+              "name": "maxFollowUps",
+              "value": 2,
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "id": "3190ee14-b442-4295-aa53-12463a44d56f",
+      "name": "Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        288,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst from = String($json.From || ($json.from && $json.from.text) || '');\nconst m = from.match(/<([^>]+)>/);\nconst senderEmail = (m ? m[1] : from).trim().toLowerCase();\nlet body = String($json.text || $json.snippet || '');\nbody = body.split(/\\n>|\\s+On .{5,200}? wrote:/)[0].trim().slice(0, 1500);\nreturn { json: {\n  senderEmail, subject: $json.Subject || $json.subject || '',\n  body, messageId: $json.id, threadId: $json.threadId\n} };\n"
+      },
+      "id": "1eb63ac9-a044-49e5-9705-7cc010dced7b",
+      "name": "Extract Sender",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "email",
+              "lookupValue": "={{ $json.senderEmail }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9d1685cd-5b08-4581-b62a-079b06954471",
+      "name": "Find Lead",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        720,
+        368
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst lead = $json;\nconst mail = $('Extract Sender').item.json;\nconst cfg = $('Config').first().json;\nconst system = `You handle replies to cold sales emails sent by ${cfg.senderName} of ${cfg.senderCompany}.\nWhat we sell: ${cfg.offer}\n\nClassify the reply into exactly one category:\n- interested: wants to talk, asks for a call, demo or pricing, or says yes\n- question: asks something that needs an answer before deciding\n- not_now: polite no, wrong timing, or asks to be contacted later\n- unsubscribe: asks to stop, remove them, or is hostile\n- other: out-of-office, bounce, auto-reply, unclear or unrelated\n\nAlso write a short plain-text reply (max 70 words, no greeting, no signature):\n- interested: thank them and ${cfg.bookingLink ? 'offer this booking link: ' + cfg.bookingLink : 'ask which days and times this week suit them (do NOT include any link or placeholder)'}\n- question: answer ONLY from the offer description above; if you cannot, say you will get back to them shortly\n- every other category: empty string\nNever invent pricing, features, customers or promises.\nReturn ONLY valid JSON with no markdown: {\"category\": string, \"reply\": string, \"summary\": string}`;\n\nconst user = `Lead: ${lead.contact_name || ''} at ${lead.company}\nOriginal subject: ${lead.subject}\n\nTheir reply:\n${mail.body}`;\n\nreturn { json: { lead, mail, requestBody: {\n  systemInstruction: { parts: [{ text: system }] },\n  contents: [{ role: 'user', parts: [{ text: user }] }],\n  generationConfig: { responseMimeType: 'application/json', maxOutputTokens: 3000, temperature: 0.7 }\n} } };\n"
+      },
+      "id": "4d38a0a6-a46d-4de0-9ec7-0e2b707f12f1",
+      "name": "Build Reply Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $('Config').first().json.model }}:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {
+          "timeout": 90000
+        }
+      },
+      "id": "a443586d-da8d-46f2-b88c-b625ba7dec15",
+      "name": "AI: Classify Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1168,
+        368
+      ],
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Gemini API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst prev = $('Build Reply Prompt').item.json;\nconst cfg = $('Config').first().json;\nlet out = {};\ntry {\n  const raw = $json.candidates[0].content.parts.map(p => p.text || '').join('').replace(/```json|```/g, '').trim();\n  out = JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1));\n} catch (e) {\n  out = { category: 'other', reply: '', summary: 'Could not classify automatically' };\n}\nlet category = ['interested', 'question', 'not_now', 'unsubscribe', 'other'].includes(out.category) ? out.category : 'other';\n// Without autoSend, a human reviews every reply that would be sent.\nif (!cfg.autoSend && category === 'interested') category = 'question';\n\nconst statusMap = { interested: 'interested', question: 'needs_review', not_now: 'follow_up_later', unsubscribe: 'do_not_contact', other: 'needs_review' };\nconst first = String(prev.lead.contact_name || '').trim().split(' ')[0];\nconst reply = String(out.reply || '').trim();\nconst replyText = reply ? `${first ? 'Hi ' + first + ',' : 'Hi,'}\\n\\n${reply}\\n\\nBest,\\n${cfg.senderName}\\n${cfg.senderCompany}` : '';\n\nreturn { json: {\n  email: prev.lead.email, company: prev.lead.company, category,\n  newStatus: statusMap[category], summary: out.summary || '',\n  reply, replyText, theirReply: prev.mail.body, messageId: prev.mail.messageId\n} };\n"
+      },
+      "id": "80299b26-6c47-496d-a3bd-8ab08c9f2ccf",
+      "name": "Parse Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1392,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r_interested",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "interested",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "interested"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r_question",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "question",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "question"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r_not_now",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "not_now",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "not_now"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "r_unsubscribe",
+                    "leftValue": "={{ $json.category }}",
+                    "rightValue": "unsubscribe",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "unsubscribe"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "b21c06e1-b97d-4ead-b635-8bb5f0edb87e",
+      "name": "Route by Category",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1600,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "reply",
+        "messageId": "={{ $('Parse Reply').item.json.messageId }}",
+        "emailType": "text",
+        "message": "={{ $('Parse Reply').item.json.replyText }}",
+        "options": {}
+      },
+      "id": "42129815-c242-44f7-abfa-9b65b9aeeb6b",
+      "name": "Reply to Lead",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1840,
+        160
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Config').first().json.ownerEmail }}",
+        "subject": "=[Sales Agent] {{ $('Parse Reply').item.json.category }}: {{ $('Parse Reply').item.json.company }}",
+        "emailType": "text",
+        "message": "=Lead: {{ $('Parse Reply').item.json.company }} ({{ $('Parse Reply').item.json.email }})\nCategory: {{ $('Parse Reply').item.json.category }}\nSummary: {{ $('Parse Reply').item.json.summary }}\n\nTheir reply:\n{{ $('Parse Reply').item.json.theirReply }}\n\nSuggested reply:\n{{ $('Parse Reply').item.json.replyText }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "c16cb154-1070-420e-b429-a1662ae7bf7d",
+      "name": "Notify Owner",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        2080,
+        288
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "PASTE_YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Leads"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "email": "={{ $('Parse Reply').item.json.email }}",
+            "status": "={{ $('Parse Reply').item.json.newStatus }}",
+            "notes": "={{ $('Parse Reply').item.json.summary }}",
+            "last_reply": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [
+            "email"
+          ],
+          "schema": [
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contact_name",
+              "displayName": "contact_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "score",
+              "displayName": "score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hook",
+              "displayName": "hook",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "subject",
+              "displayName": "subject",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "draft",
+              "displayName": "draft",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "thread_id",
+              "displayName": "thread_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_contacted",
+              "displayName": "last_contacted",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "follow_ups",
+              "displayName": "follow_ups",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_reply",
+              "displayName": "last_reply",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "33f1e70f-adda-4343-b340-9c3f0bb890e5",
+      "name": "Update Lead Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        2320,
+        448
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config": {
+      "main": [
+        [
+          {
+            "node": "Extract Sender",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Sender": {
+      "main": [
+        [
+          {
+            "node": "Find Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lead": {
+      "main": [
+        [
+          {
+            "node": "Build Reply Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reply Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI: Classify Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI: Classify Reply": {
+      "main": [
+        [
+          {
+            "node": "Parse Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Reply": {
+      "main": [
+        [
+          {
+            "node": "Route by Category",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Category": {
+      "main": [
+        [
+          {
+            "node": "Reply to Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reply to Lead": {
+      "main": [
+        [
+          {
+            "node": "Notify Owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Owner": {
+      "main": [
+        [
+          {
+            "node": "Update Lead Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timezone": "Asia/Kathmandu"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
